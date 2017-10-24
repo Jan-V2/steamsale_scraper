@@ -1,5 +1,3 @@
-import difflib
-
 import bs4
 import os
 
@@ -27,11 +25,11 @@ def get_number_pages():
     # it assumes that the 2nd to last result is the total number of pages
     index = pagelist[len(pagelist) - 2] + len(searchstring)
     # this code
-    a = 0
+    i = 0
     page_number = ""
-    while(result[index+a] != "\""):
-        page_number += result[index+a]
-        a+=1
+    while result[index+i] != "\"":
+        page_number += result[index+i]
+        i += 1
 
     return int(page_number)
 
@@ -96,17 +94,44 @@ def get_titles_list(results_list):
         titles.append( str(result.find("span", {"class": "title"}).string))
     return titles
 
+
+def listmerger(lists):#todo add to utils
+    #takes an array of lists and merges them into 1 multidimentional list csv style
+    for k in lists:
+        if not type(k) is list:
+            print("not all arguments are lists")
+            raise TypeError
+    length = -2
+    for l in lists:
+        if not length == -2:
+            if len(l) != length:
+                print("not all items given in argument are lists")
+                raise ValueError
+        else:
+            length = len(l)
+
+        ret = []
+        for i in range(0, length):
+            temp = []
+            for lis in lists:
+                temp.append(lis[i])
+            ret.append(temp)
+        return ret
+
+
+
 def main():
+    # todo in order to do the thing where you output an html page you can load in the broweser
+    # find the search result container
+    # clear it's contents
+    # add in <div>dump results array here</div>
     pages = get_testpages()
     #pages = get_pages()
     results_list = get_result_list(pages)
     titles = get_titles_list(results_list)
     percents_list = get_discount_percents(results_list)
 
-    filter_results = []
-
-    for i in range(0, len(titles)):
-        filter_results.append([percents_list[i], titles[i]])
+    filter_results = listmerger([percents_list, titles])
 
     filter_results.sort( key= lambda p: p[0], reverse=True)
 
