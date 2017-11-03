@@ -12,7 +12,25 @@ and_page = "&page="
 http = urllib3.PoolManager()
 ROOTDIR = os.path.dirname(os.path.realpath(__file__))
 html_file = "test.html"
-dirsep = "\\"
+dirsep = ""
+
+def init_platform_vars():
+    from sys import platform as _platform
+    global dirsep
+    if _platform == "linux" or _platform == "linux2":
+        # linux
+        dirsep = '/'
+    # elif _platform == "darwin":
+    #     # MAC OS X
+    #     pass
+    elif _platform == "win32":
+        # Windows
+        dirsep = "\\"
+    elif _platform == "win64":
+        # Windows 64-bit
+        dirsep = "\\"
+    else:
+        raise OSError("OS not detected")
 
 def get_number_pages():
     first_page = http.request("GET", steam_special_url_fistpage)
@@ -36,18 +54,26 @@ def get_number_pages():
     return int(page_number)
 
 
+
+
 def get_pages():
-    pages = []
-    pages.append( bs4.BeautifulSoup(
-        http.request("GET", steam_special_url_fistpage).data , 'html.parser'))
+    results = []
+
+    results = get_results_from_page(
+        bs4.BeautifulSoup( http.request("GET", steam_special_url_fistpage).data , 'html.parser'), results)
     num_pages = get_number_pages()
     for i in range(2, num_pages + 1):
-        pages.append( bs4.BeautifulSoup(
-            http.request("GET", steam_special_url_fistpage + and_page + str(i)).data, 'html.parser'))
+        results = get_results_from_page(
+            bs4.BeautifulSoup(http.request("GET", steam_special_url_fistpage + and_page + str(i)).data, 'html.parser'), results)
         print("got page "+ str(i) + "/" + str(num_pages))
 
-    return pages
+    return results
 
+def get_results_from_page(page, result_list):
+    i = page.find_all("a", {"class": "search_result_row"})
+    for result in i:
+        result_list.append(result)
+    return result_list
 
 def get_testpages():
 
@@ -62,7 +88,7 @@ def get_testpages():
     #     outfile.write("|END|")
     #     outfile.write(str(testpage2.prettify().encode()))
 
-    return [testpage, testpage2]
+    return get_result_list([testpage, testpage2])
 
 
 def get_result_list(pages):
@@ -97,7 +123,7 @@ def get_titles_list(results_list):
     return titles
 
 
-def listmerger(lists):#todo add to utils
+def listmerger(lists):
     #takes an array of lists and merges them into 1 multidimentional list csv style
     for k in lists:
         if not type(k) is list:
@@ -141,17 +167,14 @@ def create_html(filtered_results):
 
 
 def main():
-    # todo optimize to save ram
     # todo make gui
-    # todo in order to do the thing where you output an html page you can load in the broweser
     # find the search result container
     # clear it's contents and dump in the results
     test = False
     if test:
-        pages = get_testpages()
+        results_list = get_testpages()
     else:
-        pages = get_pages()
-    results_list = get_result_list(pages)
+        results_list = get_pages()
     #titles = get_titles_list(results_list)
     percents_list = get_discount_percents(results_list)
 
@@ -165,15 +188,14 @@ def main():
     # this part is deprecated
     #for row in filter_results:
     #    print(str(row[0]) + " " + row[1] + "\n")
-    # todo there are bugs with unicode encoding. should make a method where it encodes the text and then filters out the tm and c's
-    # with open(ROOTDIR + dirsep + "sales.txt", 'w') as outfile:
+    # with open(ROOTDIR + dirsep + "sales.txt", 'w', encoding="utf-8") as outfile:
     #     for row in filter_results:
-    #         outfile.write(str(row[0]) + " " + str(row[1].encode('utf-8'))[2: len(str(row[1].encode('utf-8'))) -1] + "\n")
+    #         outfile.write(str(row[0]) + " " + str(row[1].encode('utf-8'))[2: len(str(row[1].encode('utf-8'))) -1] + "\n")#remove unicode encoding before use
 
     print("done")
 
 
 
 if __name__ == '__main__':
+    init_platform_vars()
     main()
-    #get_testpages()
