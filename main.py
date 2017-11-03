@@ -11,6 +11,8 @@ steam_special_url_fistpage = "http://store.steampowered.com/search/?specials=1"
 and_page = "&page="
 http = urllib3.PoolManager()
 ROOTDIR = os.path.dirname(os.path.realpath(__file__))
+html_file = "test.html"
+dirsep = "\\"
 
 def get_number_pages():
     first_page = http.request("GET", steam_special_url_fistpage)
@@ -119,30 +121,54 @@ def listmerger(lists):#todo add to utils
         return ret
 
 
+def slice_results(results, minimum_discount, percents_index):
+    for i in range(0, len(results)):
+        if results[i][percents_index] < minimum_discount:
+            break
+    results = results[:i]
+    return results
+
+
+def create_html(filtered_results):
+    page = bs4.BeautifulSoup(http.request("GET", steam_special_url_fistpage).data, 'html.parser')
+    tag = page.find("div", {"id": "search_result_container"})
+    tag.clear()
+    for result in filtered_results:
+        tag.append(result[1])
+
+    with open(ROOTDIR + dirsep + "results.html", 'w', encoding="utf-8") as outfile:
+        outfile.write(str(page))
+
 
 def main():
+    # todo optimize to save ram
+    # todo make gui
     # todo in order to do the thing where you output an html page you can load in the broweser
     # find the search result container
-    # clear it's contents
-    # add in <div>dump results array here</div>
-    pages = get_testpages()
-    #pages = get_pages()
+    # clear it's contents and dump in the results
+    test = False
+    if test:
+        pages = get_testpages()
+    else:
+        pages = get_pages()
     results_list = get_result_list(pages)
-    titles = get_titles_list(results_list)
+    #titles = get_titles_list(results_list)
     percents_list = get_discount_percents(results_list)
 
-    filter_results = listmerger([percents_list, titles])
-
+    filter_results = listmerger([percents_list, results_list])
     filter_results.sort( key= lambda p: p[0], reverse=True)
+    filter_results = slice_results(filter_results, 40, 0)
 
+    create_html(filter_results)
+
+
+    # this part is deprecated
     #for row in filter_results:
     #    print(str(row[0]) + " " + row[1] + "\n")
     # todo there are bugs with unicode encoding. should make a method where it encodes the text and then filters out the tm and c's
-    # todo slice results so that only item with >30 discount are shown
-    # todo add urls to results
-    with open(ROOTDIR + "\\" + "sales.txt", 'w') as outfile:
-        for row in filter_results:
-            outfile.write(str(row[0]) + " " + str(row[1].encode('utf-8'))[2: len(str(row[1].encode('utf-8'))) -1] + "\n")
+    # with open(ROOTDIR + dirsep + "sales.txt", 'w') as outfile:
+    #     for row in filter_results:
+    #         outfile.write(str(row[0]) + " " + str(row[1].encode('utf-8'))[2: len(str(row[1].encode('utf-8'))) -1] + "\n")
 
     print("done")
 
