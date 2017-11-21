@@ -1,5 +1,5 @@
 import datetime
-
+import inspect
 import os
 
 
@@ -81,6 +81,9 @@ def escape_string(string):
                                               ",":  r"\,",
                                               "\n": r"\\n"}))
     return escaped
+
+def get_methods_form_claas(class_arg):
+    return inspect.getmembers(class_arg, predicate=inspect.ismethod)
 
 ROOTDIR = os.path.dirname(os.path.realpath(__file__))
 dir_sep = ''
