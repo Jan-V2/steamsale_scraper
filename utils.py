@@ -45,6 +45,13 @@ def listmerger(lists):
             ret.append(temp)
         return ret
 
+def list_demerger(list_of_lists, index):
+    # takes a list of lists and returns a list containing all the items in that index
+    ret = []
+    for line in list_of_lists:
+        ret.append(line[index])
+    return ret
+
 def get_subdir_list(dir):
     # gets the names for all the subdirs one layer deep
     # (so only the dirs in the rootdir)
@@ -82,8 +89,11 @@ def escape_string(string):
                                               "\n": r"\\n"}))
     return escaped
 
-def get_methods_form_claas(class_arg):
+def get_methods_from_class(class_arg):
     return inspect.getmembers(class_arg, predicate=inspect.ismethod)
+
+def get_functions_from_class(class_arg):
+    return inspect.getmembers(class_arg, predicate=inspect.isfunction)
 
 ROOTDIR = os.path.dirname(os.path.realpath(__file__))
 dir_sep = ''

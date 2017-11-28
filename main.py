@@ -1,14 +1,9 @@
+import collections
 import bs4
-import os
-
-import time
-import csv
-import sys
 import urllib3
-import pprint
 import re
 from appJar import gui
-from utils import ROOTDIR, listmerger, log, log_return, ints_str, get_methods_form_claas
+from utils import ROOTDIR, listmerger, log, log_return, list_demerger, get_methods_from_class, ints_str
 from utils import dir_sep as dirsep
 
 steam_special_url_firstpage = "http://store.steampowered.com/search/?specials=1"
@@ -18,15 +13,126 @@ http = urllib3.PoolManager()
 html_file = "test.html"
 
 
-class Data_Sraping:
+def get_number_pages():
+    first_page = http.request("GET", steam_special_url_firstpage)
+    html_soup = bs4.BeautifulSoup(first_page.data, 'html.parser')
+
+    result = html_soup.find_all("div", {"class": "search_pagination_right"})
+    result = str(result)
+
+    searchstring = 'page='
+    pagelist = [m.start() for m in re.finditer(searchstring, result)]
+
+    # it assumes that the 2nd to last result is the total number of pages
+    index = pagelist[len(pagelist) - 2] + len(searchstring)
+    # this code
+    i = 0
+    page_number = ""
+    while result[index + i] != "\"":
+        page_number += result[index + i]
+        i += 1
+
+    return int(page_number)
+
+def run_scrape(is_test):
+    results_as_strs = []
+    if is_test:
+        num_pages = 5
+    else:
+        num_pages = get_number_pages()
+
+    data_scraper = Data_Scraper()
+    for i in range(1, num_pages + 1):
+        page_results_as_bs4 = get_results_from_page_n(i)
+        log("got page " + str(i) + "/" + str(num_pages))
+
+        apply_data_scraping(page_results_as_bs4, data_scraper)
+
+        for result in page_results_as_bs4:
+            results_as_strs.append(str(result))
+
+    results_as_strs = apply_filters(results_as_strs, data_scraper.scraped_dict)
+    create_html(results_as_strs)
+    log('done')
+
+
+
+def apply_data_scraping(page_as_bs4, data_scraper):
+    methods = get_methods_from_class(data_scraper)  # returns list of 2 tuoles 0 = name 1 = method
+    for method in methods:
+        method[1](page_as_bs4)
+
+
+def apply_filters(results_as_strs, scraped_dict):
+    keys = collections.defaultdict(int)# a dict contianing the indexes for bits of data
+    keys.update({'results_as_strs':0})
+    merged_results = [results_as_strs]
+
+    i = 1
+    for key in scraped_dict.keys():
+        merged_results.append(scraped_dict[key])
+        keys.update({key: i})
+        i += 1
+
+    merged_results = listmerger(merged_results)
+    filter = Filter()
+    for method in get_methods_from_class(filter):
+        merged_results = method[1](merged_results, keys)
+
+    return list_demerger(merged_results, keys['results_as_strs']) # only results_as_strs that got past the filters
+
+
+
+def get_results_from_page_n(page_n):
+    page_results = []
+    if page_n == 1:  # page 1 is special because it has no &page=n
+        page = bs4.BeautifulSoup(http.request("GET", steam_special_url_firstpage).data, 'html.parser')
+    else:
+        page = bs4.BeautifulSoup(http.request("GET", steam_special_url_firstpage + and_page + str(page_n)).data, 'html.parser')
+
+    i = page.find_all("a", {"class": "search_result_row"})
+    for result in i:
+        page_results.append(result)
+    return page_results
+
+
+def get_result_list(pages):
+    results = []
+    for page in pages:
+        i = page.find_all("a", {"class": "search_result_row"})
+        for result in i:
+            results.append(result)
+        i.clear()
+    return results
+
+
+def create_html(results_as_strs):
+    page = bs4.BeautifulSoup(http.request("GET", steam_special_url_firstpage).data, 'html.parser')
+
+    # deletes extra search options things because they break the page
+    tag = page.find("div", {"id": "additional_search_options"})
+    tag.clear()# deletes the search options bar thing
+    #tag = page.find("div", {"class": "leftcol large"}) commented out because it leaves an ugly blue bar
+    #tag.clear()# deletes the searchbar thing above the results
+
+    # dumps the results in the page
+    tag = page.find("div", {"id": "search_result_container"})
+    tag.clear()
+    # todo make it so that it adds the html as text tot the page rather than bs4 to save ram
+    for result in results_as_strs:
+        i = bs4.BeautifulSoup(result, 'html.parser')
+        tag.append(i)  # turns it back into bs4
+
+    with open(ROOTDIR + dirsep + "results.html", 'w', encoding="utf-8") as outfile:
+        outfile.write(str(page))
+
+
+class Data_Scraper:
     # every methode in this class will be applied to the the results
     # they all must take the list of results as an argument and add a list to the dict in this object and have no return
     # a list in which each result lines up with a result from the argument
     # like this ["review_scores": [list of review scores]]
-    scraped_dict = dict
-
-    scraped_dict['n_user_reviews'] = []
-    scraped_dict['percent_reviews_positive'] = []  # todo refactor these back into the methods
+    scraped_dict = collections.defaultdict(list)
 
     def get_user_reviews(self, results):
         # returns 2 lists
@@ -66,18 +172,12 @@ class Data_Sraping:
             else:
                 n_user_reviews.append(0)
                 percent_reviews_positive.append(0)
-        log(str(found) + " out of " + str(len(results)) + " had reviews")
         for i in range(len(n_user_reviews)):
             self.scraped_dict['n_user_reviews'].append(n_user_reviews[i])
             self.scraped_dict['percent_reviews_positive'].append(percent_reviews_positive[i])
 
-        class helper_methods:  # helper methods for Data_Scraping in seperate class so they won't be applied to data
-            def test(self):
-                pass
-
-    scraped_dict["discount_percents"] = []  # todo refactor these back into method
-
     def get_discount_percents(self, results_list):
+        log('scraping discount percents')
         discount_percents = []
         for r in results_list:
             string = str(r.find("div", {"class": "col search_discount responsive_secondrow"}))
@@ -93,194 +193,48 @@ class Data_Sraping:
         for item in discount_percents:
             self.scraped_dict["discount_percents"].append(item)
 
-    scraped_dict["titles"] = []  # todo refactor these back into method
-
     def get_titles_list(self, results_list):
+        log("scraping title")
         titles = []
         for result in results_list:
             titles.append(str(result.find("span", {"class": "title"}).string))
         for title in titles:
             self.scraped_dict["titles"].append(title)
 
-
 class Filter:
     # every methode in this class will be applied to the the results
     # they all must take the list of results as an argument and returns the filtered list
 
     minimum_discount = 40
+
     def get_highly_discounted(self, merged_results, keys):
         percents_index = keys["discount_percents"]
         # parameters for get_good_games
         # todo make configureable
+        merged_results.sort(key=lambda p: p[percents_index], reverse=True)
         before = len(merged_results)
         for i in range(0, len(merged_results)):
             if merged_results[i][percents_index] < self.minimum_discount:
                 break
         merged_results = merged_results[:i]
-        log(str(len(merged_results)) + " out of " + str(before) + " had good enough reviews")
+        log(str(len(merged_results)) + " out of " + str(before) + " had deep enough discount")
         return merged_results
 
     # parameters for get_good_games
     # todo make configureable
     min_reviews = 100
-    min_positive = 75
+    min_positive = 65
+
     def get_good_games(self, merged_results, keys):
         n_rev_idx = keys['n_user_reviews']
         min_positive_idx = keys['percent_reviews_positive']
         ret = []
+        before = len(merged_results)
         for result in merged_results:
-            if result[self.n_rev_idx] >= self.min_reviews and result[self.min_positive_idx] >= self.min_positive:
+            if result[n_rev_idx] >= self.min_reviews and result[min_positive_idx] >= self.min_positive:
                 ret.append(result)
+        log(str(len(ret)) + " out of " + str(before) + " had good enough reviews")
         return ret
-
-
-def get_number_pages():
-    first_page = http.request("GET", steam_special_url_firstpage)
-    html_soup = bs4.BeautifulSoup(first_page.data, 'html.parser')
-
-    result = html_soup.find_all("div", {"class": "search_pagination_right"})
-    result = str(result)
-
-    searchstring = 'page='
-    pagelist = [m.start() for m in re.finditer(searchstring, result)]
-
-    # it assumes that the 2nd to last result is the total number of pages
-    index = pagelist[len(pagelist) - 2] + len(searchstring)
-    # this code
-    i = 0
-    page_number = ""
-    while result[index + i] != "\"":
-        page_number += result[index + i]
-        i += 1
-
-    return int(page_number)
-
-
-# def get_pages(): DEPRICATED
-#     results = []
-#     page = bs4.BeautifulSoup(http.request("GET", steam_special_url_firstpage).data, 'html.parser')
-#     results = get_results_from_page( page, results)
-#     num_pages = get_number_pages()
-#     for i in range(2, num_pages + 1):
-#         results = get_results_from_page(
-#             bs4.BeautifulSoup(http.request("GET", steam_special_url_firstpage + and_page + str(i)).data, 'html.parser'), results)
-#         log("got page "+ str(i) + "/" + str(num_pages))
-#
-#     return results
-
-
-def run_scrape(test):
-    results_as_strs = []
-    if test:
-        num_pages = 5
-    else:
-        num_pages = get_number_pages()
-    for i in range(1, num_pages + 1):
-        page_results_as_bs4 = get_results_from_page_n(i)
-        log("got page " + str(i) + "/" + str(num_pages))
-
-        apply_data_scraping(page_results_as_bs4)
-
-        for result in page_results_as_bs4:
-            results_as_strs.append(str(result))
-
-    results_as_strs = apply_filters(results_as_strs)
-    create_html(results_as_strs)
-
-
-def apply_data_scraping(page_as_bs4):
-    methods = get_methods_form_claas(Data_Sraping)  # returns list of 2 tuoles 0 = name 1 = method
-    for method in methods:
-        method[1](page_as_bs4)
-
-
-def apply_filters(results_as_strs):
-    # todo some lines of code that apply the methods in filter methods to the page
-    # todo turn the data into a csv fist so it stays nice and organized
-
-    keys = dict
-    keys['results_as_strs'] = 0
-    data = [results_as_strs]
-
-    i = 1
-    for key in Data_Sraping.scraped_dict.keys():
-        data.append(Data_Sraping.scraped_dict[key])
-        keys[key] = i
-        i += 1
-
-    data = listmerger(data)
-
-    return results_as_strs  # only the ones that got past the filters
-    pass
-
-
-def get_results_from_page_n(page_n):
-    page_results = []
-    if page_n == 1:  # page 1 is special because it has no &page=n
-        bs4.BeautifulSoup(http.request("GET", steam_special_url_firstpage).data, 'html.parser')
-    else:
-        page = bs4.BeautifulSoup(http.request("GET", steam_special_url_firstpage + and_page + str(page_n)).data, 'html.parser')
-
-    i = page.find_all("a", {"class": "search_result_row"})
-    for result in i:
-        page_results.append(result)
-    return page_results
-
-
-def get_result_list(pages):
-    results = []
-    for page in pages:
-        i = page.find_all("a", {"class": "search_result_row"})
-        for result in i:
-            results.append(result)
-        i.clear()
-    return results
-
-
-def create_html(results_as_strs):  # todo get rid of that block thing on the page
-    page = bs4.BeautifulSoup(http.request("GET", steam_special_url_firstpage).data, 'html.parser')
-    tag = page.find("div", {"id": "search_result_container"})
-    tag.clear()
-    for result in results_as_strs:
-        tag.append(bs4.BeautifulSoup(result, 'html.parser'))  # turns it back into bs4
-
-    with open(ROOTDIR + dirsep + "results.html", 'w', encoding="utf-8") as outfile:
-        outfile.write(str(page))
-
-
-def run(threads):
-    # todo make gui
-    # todo add chache system
-    # todo redesign app so the bs4 object are in memory for as short as possible
-    # find the search result container
-    # clear it's contents and dump in the results
-    test = False
-    if test:
-        results_list = get_testpages()
-    else:
-        results_list = get_pages()
-
-    n_user_reviews, percent_reviews_positive = get_user_reviews(results_list)
-    # titles = get_titles_list(results_list)
-    percents_list = get_discount_percents(results_list)
-
-    # todo
-    filter_results = listmerger([percents_list, results_list, n_user_reviews, percent_reviews_positive])
-    filter_results.sort(key=lambda p: p[0], reverse=True)
-    filter_results = slice_results(filter_results, 40, 0)
-    filter_results = get_good_games(filter_results, 100, 75, 2, 3)
-
-    create_html(filter_results)
-
-    # this part is deprecated
-    # for row in filter_results:
-    #    print(str(row[0]) + " " + row[1] + "\n")
-    # with open(ROOTDIR + dirsep + "sales.txt", 'w', encoding="utf-8") as outfile:
-    #     for row in filter_results:
-    #         outfile.write(str(row[0]) + " " + str(row[1].encode('utf-8'))[2: len(str(row[1].encode('utf-8'))) -1] + "\n")#remove unicode encoding before use
-
-    print("done")
-
 
 class Gui:
     app = gui("Login Form")
@@ -320,11 +274,10 @@ class Gui:
             app.errorBox("Failed login", "Invalid username or password")
 
 
-# todo add gui
-# todo add filters to filter out fake games
 # todo count duplicates to see if there's somthing i can do about it
-
+# todo make gui
+# todo add chache system
 if __name__ == '__main__':
     # ui = Gui()
     # ui.open()
-    run(1)
+    run_scrape(False)
